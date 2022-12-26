@@ -1,0 +1,349 @@
+////***************************GENERAL GO TO GOAL, GO TO POSE CONTROLLER AND ODOMETRY FOR 3 WHEEL DRIVE OMNI ROBOT****************************////
+
+#define RATE 5000 //5ms
+#include "HardwareTimer.h"
+HardwareTimer timer(2); 
+#define Buzzer PC14
+int encoderPin1 = PA8; //motor 1
+int encoderPin2 = PA15; //motor 1
+int encoderPin3 = PB1;//motor 2
+int encoderPin4 = PB0; //motor2
+int encoderPin5 = PA11;//motor3
+int encoderPin6 = PA12;//motor3
+#define green PC14
+#define blue PB5
+#define buzzer PA0
+void handler();
+
+volatile long encoderValue1 = 0;
+volatile long encoderValue2 = 0;
+volatile long encoderValue3 = 0;
+
+volatile long ticks1 = 0;
+volatile long ticks2 = 0;
+volatile long ticks3 = 0;
+
+volatile long PrevencoderValue1 = 0;
+volatile long PrevencoderValue2 = 0;
+volatile long PrevencoderValue3 = 0;
+
+float phid1=0,phid2=0,phid3=0;
+float phi1,phi2,phi3;
+
+float e1,e2,e3,prev_e1=0,prev_e2=0,prev_e3=0,e_dot1,e_dot2,e_dot3,E1=0,E2=0,E3=0,E=0;     
+float pwm1,pwm2,pwm3;
+float kp=20,kd=45,ki=10;
+float prev_phi1=0,prev_phi2=0,prev_phi3=0; 
+
+volatile double distance_error,prev_distance_error=0,w,alpha;
+//volatile double goal_x=50,goal_y=100,goal_theta=0.785398;
+volatile double a[][2] = {{0,0},{0,100}}; //square
+volatile double goal_theta = 0; //45 degrees
+double state_x=a[0][0],state_y=a[0][1], state_theta=0,theta=0;
+float ER = 990;
+int len=sizeof(a)/sizeof(a[0]);
+volatile double Cp=(2*3.1415)/ER;
+volatile double Ch=(2*3.1415)/ER;
+
+float r=2.9,L=10.2; //in cm
+
+volatile double pose_error;
+volatile double pose_error_dot;
+volatile double prev_pose_error = theta-goal_theta;
+
+
+const int motor1A  = PB12; 
+const int motor1B  = PB13; 
+const int en1  = PB8; 
+const int motor2A  = PB10;//PB14  
+const int motor2B  = PB11;  //PB15
+const int en2  = PB6; //PB6
+const int motor3A  = PB14; //PB10
+const int motor3B  = PB15; //PB11
+const int en3  = PB7; //PB7
+int i =0;
+float endtime,starttime;
+float prevx=0,prevy=0;
+volatile double V1=0,V2=0,V3=0,Vx=0,Vy=0,Vr=0;
+double timestep=0.005;
+volatile double theta_dot,psi;
+
+
+void handler()
+{   
+
+  timer.detachInterrupt(1);
+  float target_x = a[i+1][0];
+  float target_y = a[i+1][1];
+  
+  /******************CONTROLLER*********************/
+  
+  distance_error=get_distance_error(state_x,state_y,target_x,target_y);
+  alpha=get_desired_angle(state_x,state_y,target_x,target_y);
+
+  //check if bot reached destination
+  if(distance_error<5)
+  {
+    analogWrite(en1, 0);
+    analogWrite(en2, 0);
+    analogWrite(en3, 0);
+    i++;
+    if(i==(len-1))
+    { digitalWrite(green,HIGH);
+      digitalWrite(blue,HIGH);
+      digitalWrite(buzzer,HIGH);
+      delay(250000);
+      digitalWrite(green,LOW);
+      digitalWrite(blue,LOW);
+      digitalWrite(buzzer,LOW);
+      delay(250000);
+      digitalWrite(green,HIGH);
+      digitalWrite(blue,HIGH);
+      digitalWrite(buzzer,HIGH);
+      delay(250000);
+      digitalWrite(green,LOW);
+      digitalWrite(blue,LOW);
+      digitalWrite(buzzer,LOW);
+      delay(250000);
+      digitalWrite(green,LOW);
+      digitalWrite(blue,HIGH);
+      digitalWrite(buzzer,HIGH);
+      delay(250000);
+      
+      digitalWrite(blue,HIGH);
+      digitalWrite(buzzer,LOW);
+      delay(250000);
+      
+     // timer.detachInterrupt(1);
+      exit(0);
+    }
+   // timer.detachInterrupt(1);
+   
+  }
+
+  psi=atan2(sin(alpha-theta),cos(alpha-theta));
+  pose_error=atan2(sin(-theta+goal_theta),cos(-theta+goal_theta));
+  //pose_error = goal_theta-theta; 
+  E=E+pose_error; 
+  pose_error_dot=(pose_error-prev_pose_error);
+  prev_pose_error=pose_error;
+
+  w= pose_error*kp+(kd/timestep)*pose_error_dot+(ki*timestep*E);
+  Vr=300;
+
+  phid1=(1/r)*(Vr*cos(psi)+L*w);
+  phid2=(1/r)*(((-1/2)*Vr*cos(psi))+((sqrt(3)/2)*Vr*sin(psi) )+L*w);
+  phid3=(1/r)*(((-1/2)*Vr*cos(psi))+((-1*sqrt(3)/2)*Vr*sin(psi))+L*w);
+
+
+  pwm1=adjust_pwm(phid1);
+  pwm2=adjust_pwm(phid2);
+  pwm3=adjust_pwm(phid3);
+   
+  
+  if(pwm1>0)
+  {
+    digitalWrite(motor1A, HIGH);
+    digitalWrite(motor1B, LOW);
+    analogWrite(en1, pwm1);
+  }
+  if(pwm1<0)
+  {
+    digitalWrite(motor1A, LOW);
+    digitalWrite(motor1B, HIGH);
+    analogWrite(en1, -1*pwm1);
+  }
+  if(pwm2>0)
+  {
+    digitalWrite(motor2A, HIGH);
+    digitalWrite(motor2B, LOW);
+    analogWrite(en2, pwm2);
+  }
+  if(pwm2<0)
+  {
+    digitalWrite(motor2A, LOW);
+    digitalWrite(motor2B, HIGH);
+    analogWrite(en2, -1*pwm2);
+  }
+  if(pwm3>0)
+  {
+    digitalWrite(motor3A, HIGH);
+    digitalWrite(motor3B, LOW);
+    analogWrite(en3, pwm3);
+  }
+  if(pwm3<0)
+  {
+    digitalWrite(motor3A, LOW);
+    digitalWrite(motor3B, HIGH);
+    analogWrite(en3, -1*pwm3);
+  }
+  
+  /*********************ODOMETRY******************************/
+  
+  V1=((encoderValue1-PrevencoderValue1)*Cp)/timestep;
+  V2=((encoderValue2-PrevencoderValue2)*Cp)/timestep;
+  V3=((encoderValue3-PrevencoderValue3)*Ch)/timestep;
+  
+  PrevencoderValue1=encoderValue1;
+  PrevencoderValue2=encoderValue2;
+  PrevencoderValue3=encoderValue3;
+   /*Serial.print(V1);
+   Serial.print(" ");
+   Serial.print(V2);
+   Serial.print(" ");
+   Serial.print(V3);*/
+  theta_dot=(r/(3*L))*(V1+V2+V3);
+  theta=theta+(theta_dot*timestep);
+  //theta=0.529;
+  float s=sin(theta);
+  float c=cos(theta);
+  
+    
+   Vx=((2*c*V1)/3)+((-1*s/sqrt(3)-c/3)*V2)+((s/sqrt(3)-c/3)*V3);
+   Vy=((2*s*V1)/3)+((c/sqrt(3)-s/3)*V2)+((-1*s/3-c/sqrt(3))*V3);
+    //Serial.print(Vx);
+    //Serial.print(" ; ");
+    //Serial.println(Vy);
+    
+    state_x=state_x+(r*Vx*timestep);
+    state_y=state_y+(r*Vy*timestep);
+   Serial.print(" ");
+   Serial.print(state_x);
+   Serial.print(" ");
+   Serial.print(state_y);
+   Serial.print(" ");
+   Serial.print(theta);
+   Serial.print(" ");
+   Serial.println(pose_error);
+   
+   
+   // Serial.print(" S = ");
+    //Serial.println(distance_error);
+  timer.attachInterrupt(1,handler);
+
+  
+}
+
+
+
+void setup()
+{
+    Serial.begin (115200);
+    pinMode(green,OUTPUT);
+    pinMode(blue,OUTPUT);
+    pinMode(buzzer,OUTPUT);
+    pinMode(motor1A,OUTPUT);
+    pinMode(motor1B,OUTPUT);
+    pinMode(motor2A,OUTPUT);
+    pinMode(motor2B,OUTPUT);
+    pinMode(motor3A, OUTPUT);
+    pinMode(motor3B, OUTPUT);
+    pinMode(en3, OUTPUT);
+    pinMode(en1,OUTPUT);
+    pinMode(en2,OUTPUT);
+    pinMode(encoderPin1, INPUT); 
+    pinMode(encoderPin2, INPUT);
+    pinMode(encoderPin3,INPUT);
+    pinMode(encoderPin4,INPUT);
+    pinMode(encoderPin5,INPUT);
+    pinMode(encoderPin6,INPUT);
+  
+    digitalWrite(encoderPin1, HIGH); //turn pullup resistor on
+    digitalWrite(encoderPin2, HIGH); //turn pullup resistor on
+    digitalWrite(encoderPin3, HIGH); //turn pullup resistor on
+    digitalWrite(encoderPin4, HIGH); //turn pullup resistor on
+    digitalWrite(encoderPin5, HIGH); //turn pullup resistor on
+    digitalWrite(encoderPin6, HIGH); //turn pullup resistor on
+    digitalWrite(green,HIGH);
+    delay(1000);
+    digitalWrite(blue,HIGH);
+    digitalWrite(buzzer,HIGH);
+    delay(500);
+    digitalWrite(blue,LOW);
+    digitalWrite(buzzer,LOW);
+    delay(500);
+    digitalWrite(blue,HIGH);
+    digitalWrite(buzzer,HIGH);
+    delay(500);
+    digitalWrite(PB5,LOW);
+    digitalWrite(buzzer,LOW);
+    
+    
+    attachInterrupt(digitalPinToInterrupt(PA15), returnCount1, RISING); 
+    attachInterrupt(digitalPinToInterrupt(PB1), returnCount2, RISING); //PA12
+    attachInterrupt(digitalPinToInterrupt(PA12), returnCount3, RISING);  //PB1
+ 
+    timer.pause();
+    timer.setPeriod(RATE);
+    timer.setChannel1Mode(TIMER_OUTPUT_COMPARE);
+    timer.setCompare(TIMER_CH1, 1);  // Interrupt 1 count after each update
+    timer.attachCompare1Interrupt(handler);
+
+    // Refresh the timer's count, prescale, and overflow
+    timer.refresh();
+
+    // Start the timer counting
+    timer.resume();
+
+
+    float starttime = millis();
+    float endtime = starttime;
+
+
+
+}
+
+void loop()
+{ 
+}
+
+
+void returnCount1()
+  {
+    if(digitalRead(PA8)) 
+    encoderValue1++;
+    else 
+    encoderValue1--;
+  }
+
+void returnCount2()
+  {
+    if(digitalRead(PB0)) //PA11
+    encoderValue2++;
+    else 
+    encoderValue2--;
+  }
+
+void returnCount3()
+{
+  if(digitalRead(PA11)) //PB0
+  encoderValue3++;
+  else 
+  encoderValue3--;
+}
+
+float get_distance_error(float state_x,float state_y,float goal_x,float goal_y)
+{
+  return(sqrt(((state_x-goal_x)*(state_x-goal_x)) + ((state_y-goal_y)*(state_y-goal_y))));
+}
+
+float get_desired_angle(float state_x ,float state_y,float goal_x,float goal_y)
+{
+  return (atan2((goal_y - state_y),(goal_x - state_x)));
+}
+
+float adjust_pwm(float control)
+{
+    if(control>255)
+        control=255;
+    if(control<-255)
+        control=-1*255;
+   /*
+     if(control <50 && control >0)
+        control = 50;
+     if(control<0 && control >-50)
+        control = -50;
+       */
+    return control;
+
+}
